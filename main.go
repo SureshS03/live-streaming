@@ -19,11 +19,11 @@ import (
 )
 
 const (
-	storageDir      = "./storage"       // where each video's HLS output will live
-	maxUploadSize   = 1 << 30           // 1GB (adjust as needed)
+	storageDir      = "./storage"       // folder
+	maxUploadSize   = 1 << 30           // 1GB
 	ffmpegTimeout   = 10 * time.Minute  // how long we allow ffmpeg to run
-	basicAuthUser   = "admin"           // simple demo auth user
-	basicAuthPass   = "secret"          // demo auth password (change)
+	basicAuthUser   = "admin"           // auth
+	basicAuthPass   = "secret"          // pass
 	hlsSegmentTime  = "4"               // seconds per HLS segment
 )
 
@@ -34,7 +34,6 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/upload", basicAuth(uploadHandler))
-	// Serve the HLS files (index.m3u8 + .ts) with caching headers
 	mux.Handle("/hls/", http.StripPrefix("/hls/", http.HandlerFunc(hlsHandler)))
 
 	addr := ":8080"
@@ -44,8 +43,7 @@ func main() {
 	}
 }
 
-// cors wraps responses to allow cross-origin requests (useful for browser playback during dev)
-
+// cors wraps
 func cors(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*") // tighten in prod
@@ -59,8 +57,7 @@ func cors(h http.Handler) http.Handler {
 	})
 }
 
-// basicAuth is a tiny middleware for demo HTTP Basic Auth
-
+// middleware
 func basicAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		user, pass, ok := r.BasicAuth()
@@ -74,10 +71,8 @@ func basicAuth(next http.HandlerFunc) http.HandlerFunc {
 }
 
 // uploadHandler accepts multipart/form-data with a file field named "file".
-// It saves to a temp file, runs ffmpeg to convert to HLS and returns the HLS URL.
-
 func uploadHandler(w http.ResponseWriter, r *http.Request) {
-	// limit request size to prevent resource exhaustion
+	// limit request size
 	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
 		http.Error(w, "could not parse multipart form: "+err.Error(), http.StatusBadRequest)
@@ -91,7 +86,7 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	// simple validation: allow mp4 and mov and mkv
+	// allow mp4 and mov and mkv
 	if !isAllowedExt(fh.Filename) {
 		http.Error(w, "only mp4/mov/mkv allowed", http.StatusBadRequest)
 		return
@@ -111,7 +106,7 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// convert to HLS via ffmpeg
+	// context for ffmpeg converting
 	ctx, cancel := context.WithTimeout(context.Background(), ffmpegTimeout)
 	defer cancel()
 
@@ -121,7 +116,6 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// optionally remove uploaded file to save space
 	_ = os.Remove(tempPath)
 
 	hlsURL := fmt.Sprintf("/hls/%s/index.m3u8", videoID)
@@ -130,7 +124,6 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `{"id":"%s","hls_url":"%s"}`, videoID, hlsURL)
 }
 
-// hlsHandler serves files from storage dir with Cache-Control for CDNs
 func hlsHandler(w http.ResponseWriter, r *http.Request) {
 	path := filepath.Clean(r.URL.Path)
 	if strings.Contains(path, "..") {
@@ -138,18 +131,17 @@ func hlsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	fsPath := filepath.Join(storageDir, path)
-	// set caching headers for segments and manifests
+	//if part file
 	if strings.HasSuffix(fsPath, ".ts") {
 		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 	} else if strings.HasSuffix(fsPath, ".m3u8") {
-		// small TTL for playlists (so ABR updates propagate)
+		//if full file
 		w.Header().Set("Cache-Control", "public, max-age=5")
 	}
 	http.ServeFile(w, r, fsPath)
 }
 
 // helpers
-
 func isAllowedExt(filename string) bool {
 	ext := strings.ToLower(filepath.Ext(filename))
 	switch ext {
@@ -176,17 +168,9 @@ func randomID(n int) string {
 	return hex.EncodeToString(b)
 }
 
-// convertToHLS runs ffmpeg to produce HLS segments & index.m3u8 in outDir.
-// requires ffmpeg binary installed and reachable in PATH.
 
 func convertToHLS(ctx context.Context, inputPath, outDir string) error {
-	// ffmpeg args tuned for broad compatibility (VOD HLS)
-	// -c:v libx264: H.264
-	// -preset veryfast: faster encode (adjust for quality)
-	// -crf 23: quality/size tradeoff
-	// -c:a aac: audio codec
-	// -hls_time: segment duration
-	// -hls_segment_filename: where to write segments
+
 	outPattern := filepath.Join(outDir, "segment_%03d.ts")
 	indexPath := filepath.Join(outDir, "index.m3u8")
 
@@ -207,7 +191,7 @@ func convertToHLS(ctx context.Context, inputPath, outDir string) error {
 	}
 
 	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
-	// optional: log ffmpeg stderr to server logs for debugging
+	//ffmpeg logs
 	cmd.Stderr = os.Stderr
 	cmd.Stdout = os.Stdout
 
