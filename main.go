@@ -35,6 +35,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/upload", basicAuth(uploadHandler))
 	// Serve the HLS files (index.m3u8 + .ts) with caching headers
+	mux.Handle("/hls/", http.StripPrefix("/hls/", http.HandlerFunc(hlsHandler)))
 
 	addr := ":8080"
 	log.Printf("listening on %s", addr)
@@ -130,7 +131,22 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // hlsHandler serves files from storage dir with Cache-Control for CDNs
-
+func hlsHandler(w http.ResponseWriter, r *http.Request) {
+	path := filepath.Clean(r.URL.Path)
+	if strings.Contains(path, "..") {
+		http.Error(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+	fsPath := filepath.Join(storageDir, path)
+	// set caching headers for segments and manifests
+	if strings.HasSuffix(fsPath, ".ts") {
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	} else if strings.HasSuffix(fsPath, ".m3u8") {
+		// small TTL for playlists (so ABR updates propagate)
+		w.Header().Set("Cache-Control", "public, max-age=5")
+	}
+	http.ServeFile(w, r, fsPath)
+}
 
 // helpers
 
